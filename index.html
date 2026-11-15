@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Fieldwise synthetic operations demonstration">
+  <title>Fieldwise | Operations demo</title>
+  <link rel="stylesheet" href="./styles.css">
+  <style>
+    a, .contact-trigger { color: var(--teal); }
+    .contact-trigger { background: none; border: 0; padding: 0; text-decoration: underline; }
+    dialog { border: 0; border-radius: 14px; box-shadow: 0 18px 60px #172d4040; color: var(--ink); max-width: 520px; padding: 0; width: calc(100% - 2rem); }
+    dialog::backdrop { background: #172d4066; }
+    dialog form { padding: 1.25rem 1.35rem 1.35rem; }
+    .modal-header { align-items: flex-start; display: flex; justify-content: space-between; gap: 1rem; }
+    .modal-header h2 { margin-top: .1rem; }
+    .modal-close { background: transparent; border: 0; color: var(--muted); font-size: 1.7rem; line-height: 1; padding: .1rem .25rem; }
+    .form-label { color: #385169; display: block; font-size: .82rem; font-weight: 700; margin: .9rem 0 .35rem; }
+    .form-label span { color: var(--red); }
+    .contact-form input, .contact-form textarea, dialog input, dialog textarea { border: 1px solid #b8c9d6; border-radius: 7px; color: var(--ink); padding: .6rem; width: 100%; }
+    dialog textarea { min-height: 110px; resize: vertical; }
+    .modal-actions { display: flex; gap: .6rem; justify-content: flex-end; margin-top: 1rem; }
+    .primary-button, .secondary-button { border: 0; border-radius: 7px; padding: .6rem .85rem; }
+    .primary-button { background: var(--teal); color: #fff; }
+    .secondary-button { background: #e9eff4; color: var(--ink); }
+    .form-status { min-height: 1.4rem; margin-top: .7rem; }
+    .honeypot { display: none !important; }
+    .form-status.success { margin: .7rem 0 0; }
+    .form-status.failure { background: #fff1f0; border-left: 4px solid var(--red); color: #8a1c1c; padding: .55rem .7rem; }
+    @media (max-width: 760px) { dialog { max-height: 92vh; overflow: auto; } }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand"><span>◈</span> Fieldwise</div>
+      <p class="eyebrow">SENSOR INTELLIGENCE · CUSTOMER DEMO</p>
+      <label class="label">Workspace</label><nav id="nav" aria-label="Workspace"></nav>
+      <hr>
+      <label class="label" for="scenario">Demonstration scenario</label>
+      <select id="scenario"><option>Refrigeration</option><option>Building environment</option></select>
+      <label class="label" for="stage">Replay stage</label>
+      <input id="stage" type="range" min="24" max="60" value="60">
+      <div class="range-labels"><span>Normal operation</span><span>Missing reports</span></div><output id="stage-name"></output>
+      <label class="label">Temperature unit</label><div class="segmented"><button data-unit="°C" class="active">°C</button><button data-unit="°F">°F</button></div>
+      <label class="label" for="timezone">Display timezone</label>
+      <select id="timezone"><option value="America/New_York">America/New_York</option><option value="UTC">UTC</option></select>
+      <p class="sidebar-note">Replay is deterministic. Change stages to inspect the same story; no live systems are contacted.</p>
+    </aside>
+    <button class="mobile-menu" id="mobile-menu" aria-label="Open navigation">☰</button>
+    <main><div class="mobile-brand brand">◈ Fieldwise</div><div id="app"></div><footer>FIELDWISE DEMONSTRATION · Synthetic data only · No hardware connection · No automated equipment actions · <button class="contact-trigger" id="contact-open" type="button">Interested in Fieldwise?</button></footer></main>
+  </div>
+  <dialog id="contact-dialog" aria-labelledby="contact-title">
+    <form id="contact-form" method="post" action="https://formspree.io/f/xnpdpzbl">
+      <div class="modal-header"><div><p class="demo-tag">FIELDWISE DEMONSTRATION</p><h2 id="contact-title">Interested in Fieldwise?</h2></div><button class="modal-close" id="contact-close" type="button" aria-label="Close contact form">×</button></div>
+      <p class="caption">Tell us how we can follow up. Contact submissions are processed by Formspree.</p>
+      <label class="form-label" for="contact-name">Name <span aria-hidden="true">*</span></label>
+      <input id="contact-name" name="name" type="text" autocomplete="name" required>
+      <label class="form-label" for="contact-email">Email <span aria-hidden="true">*</span></label>
+      <input id="contact-email" name="email" type="email" autocomplete="email" required>
+      <label class="form-label" for="contact-message">Message <span aria-hidden="true">*</span></label>
+      <textarea id="contact-message" name="message" rows="5" required></textarea>
+      <input class="honeypot" type="text" name="_gotcha" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <div id="contact-status" class="form-status" role="status" aria-live="polite"></div>
+      <div class="modal-actions"><button class="secondary-button" id="contact-cancel" type="button">Cancel</button><button class="primary-button" id="contact-submit" type="submit">Send inquiry</button></div>
+    </form>
+  </dialog>
+  <script src="./app.js"></script>
+</body>
+</html>
