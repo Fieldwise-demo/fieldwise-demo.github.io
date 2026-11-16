@@ -11,16 +11,27 @@
   const mobileMenu = $("#mobile-menu");
   const mobileBackdrop = $("#mobile-backdrop");
   let navigationReturnFocus = mobileMenu;
+  const mobileLayout = window.matchMedia("(max-width: 760px)");
+
+  function syncNavigation() {
+    const open = mobileLayout.matches && sidebar.classList.contains("open");
+    sidebar.inert = mobileLayout.matches && !open;
+    $("#main-content").inert = open;
+    document.body.classList.toggle("navigation-open", open);
+    mobileBackdrop.hidden = !open;
+  }
 
   function setNavigationOpen(open, restoreFocus = true) {
+    open = open && mobileLayout.matches;
     sidebar.classList.toggle("open", open);
     mobileMenu.setAttribute("aria-expanded", String(open));
     mobileMenu.setAttribute("aria-label", open ? "Close navigation" : "Open navigation");
     mobileBackdrop.hidden = !open;
+    syncNavigation();
 
     if (open) {
       navigationReturnFocus = document.activeElement || mobileMenu;
-      requestAnimationFrame(() => $("#nav button")?.focus());
+      $("#nav [aria-current='page']")?.focus();
     } else if (restoreFocus && navigationReturnFocus?.focus) {
       navigationReturnFocus.focus();
     }
@@ -223,19 +234,26 @@
       '<div class="notice">Suggested review: inspect active excursions and stale reporting before making operational decisions.</div>';
   }
   function render(focusHeading = false) {
+    const focusedId = app.contains(document.activeElement) ? document.activeElement.id : null;
     const data = buildData();
-    $("#stage-name").textContent = STAGES[state.stage];
+    const stageName = STAGES[state.stage] || (state.stage < 30 ? "Normal operation" : state.stage <= 42 ? "Temperature excursion" : state.stage <= 48 ? "Recovery" : "Missing reports");
+    $("#stage-name").textContent = stageName;
+    $("#stage").setAttribute("aria-valuetext", stageName);
+    document.querySelectorAll("[data-unit]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.unit === state.unit)));
     document.querySelectorAll("#nav button").forEach((button) => {
       const active = button.dataset.view === state.view;
       button.classList.toggle("active", active);
       button.setAttribute("aria-current", active ? "page" : "false");
     });
     const body = state.view === "Overview" ? overview(data) : state.view === "Asset Detail" ? assetDetail(data) : state.view === "Incidents" ? incidentView(data) : state.view === "Device Health" ? health(data) : insights(data);
-    app.innerHTML = '<div class="demo-tag">OPERATIONS WORKSPACE</div><h1 id="page-title" tabindex="-1">' + state.view + '</h1><p class="sr-only" role="status" aria-live="polite">' + state.view + ' view selected.</p><p class="subtitle">Know what needs attention. Keep your operation moving.</p><div class="notice"><strong>Demonstration using simulated data.</strong> · ' +
-      state.scenario + " · " + STAGES[state.stage] + " · Scenario clock: " + timeText(data.clock) + ". These are illustrative readings, not live measurements.</div>" + body;
+    app.innerHTML = '<div class="demo-tag">OPERATIONS WORKSPACE</div><h1 id="page-title" tabindex="-1">' + state.view + '</h1><p class="subtitle">Know what needs attention. Keep your operation moving.</p><div class="notice"><strong>Demonstration using simulated data.</strong> · ' +
+      state.scenario + " · " + stageName + " · Scenario clock: " + timeText(data.clock) + ". These are illustrative readings, not live measurements.</div>" + body;
+    $("#view-status").textContent = state.view + ". " + state.scenario + ". " + stageName + (state.view === "Incidents" ? ". " + incidents(data, state.incidentStatus).length + " matching incidents." : ".");
     $("#asset-select")?.addEventListener("change", (event) => { state.asset = event.target.value; render(); });
     $("#incident-status")?.addEventListener("change", (event) => { state.incidentStatus = event.target.value; render(); });
+    if ($("#incident-status")) $("#incident-status").value = state.incidentStatus;
     if (focusHeading) $("#page-title")?.focus();
+    else if (focusedId) document.getElementById(focusedId)?.focus();
   }
   VIEWS.forEach((view) => { const button = document.createElement("button"); button.dataset.view = view; button.textContent = view; button.setAttribute("aria-current", "false"); button.addEventListener("click", () => { state.view = view; closeNavigation(); render(true); }); $("#nav").append(button); });
   $("#scenario").addEventListener("change", (event) => { state.scenario = event.target.value; state.asset = "demo-1"; render(); });
@@ -244,7 +262,23 @@
   document.querySelectorAll("[data-unit]").forEach((button) => button.addEventListener("click", () => { state.unit = button.dataset.unit; document.querySelectorAll("[data-unit]").forEach((item) => item.classList.toggle("active", item === button)); render(); }));
   mobileMenu.addEventListener("click", () => setNavigationOpen(!sidebar.classList.contains("open")));
   mobileBackdrop.addEventListener("click", closeNavigation);
-  document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeNavigation(); });
+  document.addEventListener("keydown", (event) => {
+    if (!mobileLayout.matches || !sidebar.classList.contains("open")) return;
+    if (event.key === "Escape") { event.preventDefault(); closeNavigation(); }
+    if (event.key === "Tab") {
+      const controls = [...sidebar.querySelectorAll("button, select, input"), mobileMenu];
+      const first = controls[0], last = controls.at(-1);
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    }
+  });
+  mobileLayout.addEventListener("change", () => {
+    const focusWasInSidebar = sidebar.contains(document.activeElement);
+    setNavigationOpen(false, false);
+    if (mobileLayout.matches && focusWasInSidebar) mobileMenu.focus();
+    else if (!mobileLayout.matches && document.activeElement === mobileMenu) $("#nav [aria-current='page']")?.focus();
+  });
+  syncNavigation();
   const contactDialog = $("#contact-dialog");
   const contactForm = $("#contact-form");
   const contactStatus = $("#contact-status");
