@@ -31,11 +31,12 @@
   </style>
 </head>
 <body>
+  <a class="skip-link" href="#main-content">Skip to main content</a>
   <div class="shell">
-    <aside class="sidebar" id="sidebar">
+    <aside class="sidebar" id="sidebar" aria-labelledby="workspace-label" tabindex="-1">
       <div class="brand"><span>◈</span> Fieldwise</div>
       <p class="eyebrow">SENSOR INTELLIGENCE · CUSTOMER DEMO</p>
-      <label class="label">Workspace</label><nav id="nav" aria-label="Workspace"></nav>
+      <label class="label" id="workspace-label">Workspace</label><nav id="nav" aria-label="Workspace"></nav>
       <hr>
       <label class="label" for="scenario">Demonstration scenario</label>
       <select id="scenario"><option>Refrigeration</option><option>Building environment</option></select>
@@ -47,8 +48,9 @@
       <select id="timezone"><option value="America/New_York">America/New_York</option><option value="UTC">UTC</option></select>
       <p class="sidebar-note">Replay is deterministic. Change stages to inspect the same story; no live systems are contacted.</p>
     </aside>
-    <button class="mobile-menu" id="mobile-menu" aria-label="Open navigation">☰</button>
-    <main><div class="mobile-brand brand">◈ Fieldwise</div><div id="app"></div><footer>FIELDWISE DEMONSTRATION · Synthetic data only · No hardware connection · No automated equipment actions · <button class="contact-trigger" id="contact-open" type="button">Interested in Fieldwise?</button></footer></main>
+    <button class="mobile-menu" id="mobile-menu" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false">☰</button>
+    <div class="mobile-backdrop" id="mobile-backdrop" hidden></div>
+    <main id="main-content" tabindex="-1"><div class="mobile-brand brand">◈ Fieldwise</div><div id="app"></div><footer>FIELDWISE DEMONSTRATION · Synthetic data only · No hardware connection · No automated equipment actions · <button class="contact-trigger" id="contact-open" type="button">Interested in Fieldwise?</button></footer></main>
   </div>
   <dialog id="contact-dialog" aria-labelledby="contact-title">
     <form id="contact-form" method="post" action="https://formspree.io/f/xnpdpzbl">

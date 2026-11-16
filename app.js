@@ -7,6 +7,28 @@
   const state = { view: "Overview", scenario: "Refrigeration", stage: 60, unit: "°C", timezone: "America/New_York", asset: "demo-1", incidentStatus: "All" };
   const app = document.querySelector("#app");
   const $ = (selector) => document.querySelector(selector);
+  const sidebar = $("#sidebar");
+  const mobileMenu = $("#mobile-menu");
+  const mobileBackdrop = $("#mobile-backdrop");
+  let navigationReturnFocus = mobileMenu;
+
+  function setNavigationOpen(open, restoreFocus = true) {
+    sidebar.classList.toggle("open", open);
+    mobileMenu.setAttribute("aria-expanded", String(open));
+    mobileMenu.setAttribute("aria-label", open ? "Close navigation" : "Open navigation");
+    mobileBackdrop.hidden = !open;
+
+    if (open) {
+      navigationReturnFocus = document.activeElement || mobileMenu;
+      requestAnimationFrame(() => $("#nav button")?.focus());
+    } else if (restoreFocus && navigationReturnFocus?.focus) {
+      navigationReturnFocus.focus();
+    }
+  }
+
+  function closeNavigation() {
+    if (sidebar.classList.contains("open")) setNavigationOpen(false);
+  }
 
   function escape(value) {
     return String(value).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -137,14 +159,20 @@
       (row ? row.humidity.toFixed(1) + " %" : "—") + '</div></div><div><div class="stat-label">Active incidents</div><div class="stat-value">' + active.length +
       '</div></div></div><p class="caption"><strong>' + status + '</strong> · reporting freshness<br>Last receipt: ' + (row ? timeText(row.time) : "Unknown") + ' · Connectivity unverified</p></article>';
   }
+  function incidentCard(data, item) {
+    const asset = data.assets.find((candidate) => candidate.id === item.asset);
+    const isTemp = item.field === "temperature";
+    return '<article class="incident-card ' + item.status + '"><div class="incident-card-head"><strong>' + item.id + '</strong><span class="badge ' + item.status + '">' + item.status + '</span></div>' +
+      '<dl><div><dt>Asset</dt><dd>' + asset.name + '</dd></div><div><dt>Severity</dt><dd>' + item.severity + '</dd></div><div><dt>Measurement</dt><dd>' + (isTemp ? "Temperature" : "Relative humidity") + '</dd></div><div><dt>Latest value</dt><dd>' + (isTemp ? tempText(item.value) : item.value.toFixed(2) + " %") + '</dd></div><div><dt>Condition</dt><dd>' + item.condition + '</dd></div><div><dt>Threshold</dt><dd>' + (isTemp ? tempText(item.threshold) : item.threshold.toFixed(2) + " %") + '</dd></div><div><dt>Occurrences</dt><dd>' + item.count + '</dd></div><div><dt>First detected</dt><dd>' + timeText(item.first) + '</dd></div><div><dt>Resolved</dt><dd>' + (item.resolved ? timeText(item.resolved) : "Open") + '</dd></div></dl></article>';
+  }
   function incidentTable(data, list) {
     if (!list.length) return '<div class="card empty">No incidents match this selection.</div>';
-    return '<div class="table-wrap"><table><thead><tr><th>Incident</th><th>Asset</th><th>Status</th><th>Severity</th><th>Measurement</th><th>Condition</th><th>Last value</th><th>Threshold</th><th>Occurrences</th><th>First detected</th><th>Resolved</th></tr></thead><tbody>' +
+    return '<div class="table-wrap incident-table"><table><thead><tr><th>Incident</th><th>Asset</th><th>Status</th><th>Severity</th><th>Measurement</th><th>Condition</th><th>Last value</th><th>Threshold</th><th>Occurrences</th><th>First detected</th><th>Resolved</th></tr></thead><tbody>' +
       list.map((item) => { const asset = data.assets.find((a) => a.id === item.asset), isTemp = item.field === "temperature"; return '<tr class="' + item.status + '"><td>' + item.id + '</td><td>' +
         asset.name + '</td><td><span class="badge ' + item.status + '">' + item.status + '</span></td><td>' + item.severity + '</td><td>' + (isTemp ? "Temperature" : "Relative humidity") +
         '</td><td>' + item.condition + '</td><td>' + (isTemp ? tempText(item.value) : item.value.toFixed(2) + " %") + '</td><td>' + (isTemp ? tempText(item.threshold) : item.threshold.toFixed(2) + " %") +
         '</td><td>' + item.count + '</td><td>' + timeText(item.first) + '</td><td>' + (item.resolved ? timeText(item.resolved) : "Open") + "</td></tr>"; }).join("") +
-      '</tbody></table></div><p class="caption">Each incident groups repeated violations of one asset, measurement, and condition. Missing reports do not resolve incidents.</p>';
+      '</tbody></table></div><div class="incident-cards">' + list.map((item) => incidentCard(data, item)).join("") + '</div><p class="caption">Each incident groups repeated violations of one asset, measurement, and condition. Missing reports do not resolve incidents.</p>';
   }
   function overview(data) {
     const active = incidents(data, "Active"), resolved = incidents(data, "Resolved");
@@ -194,22 +222,29 @@
       items.map((item) => '<div class="card insight"><strong>' + (item[0] === 0 ? "Action needed · " : item[0] === 1 ? "Review · " : "") + "</strong>" + escape(item[1]) + "</div>").join("") +
       '<div class="notice">Suggested review: inspect active excursions and stale reporting before making operational decisions.</div>';
   }
-  function render() {
+  function render(focusHeading = false) {
     const data = buildData();
     $("#stage-name").textContent = STAGES[state.stage];
-    document.querySelectorAll("#nav button").forEach((button) => button.classList.toggle("active", button.dataset.view === state.view));
+    document.querySelectorAll("#nav button").forEach((button) => {
+      const active = button.dataset.view === state.view;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-current", active ? "page" : "false");
+    });
     const body = state.view === "Overview" ? overview(data) : state.view === "Asset Detail" ? assetDetail(data) : state.view === "Incidents" ? incidentView(data) : state.view === "Device Health" ? health(data) : insights(data);
-    app.innerHTML = '<div class="demo-tag">OPERATIONS WORKSPACE</div><h1>' + state.view + '</h1><p class="subtitle">Know what needs attention. Keep your operation moving.</p><div class="notice"><strong>Demonstration using simulated data.</strong> · ' +
+    app.innerHTML = '<div class="demo-tag">OPERATIONS WORKSPACE</div><h1 id="page-title" tabindex="-1">' + state.view + '</h1><p class="sr-only" role="status" aria-live="polite">' + state.view + ' view selected.</p><p class="subtitle">Know what needs attention. Keep your operation moving.</p><div class="notice"><strong>Demonstration using simulated data.</strong> · ' +
       state.scenario + " · " + STAGES[state.stage] + " · Scenario clock: " + timeText(data.clock) + ". These are illustrative readings, not live measurements.</div>" + body;
     $("#asset-select")?.addEventListener("change", (event) => { state.asset = event.target.value; render(); });
     $("#incident-status")?.addEventListener("change", (event) => { state.incidentStatus = event.target.value; render(); });
+    if (focusHeading) $("#page-title")?.focus();
   }
-  VIEWS.forEach((view) => { const button = document.createElement("button"); button.dataset.view = view; button.textContent = view; button.addEventListener("click", () => { state.view = view; $("#sidebar").classList.remove("open"); render(); }); $("#nav").append(button); });
+  VIEWS.forEach((view) => { const button = document.createElement("button"); button.dataset.view = view; button.textContent = view; button.setAttribute("aria-current", "false"); button.addEventListener("click", () => { state.view = view; closeNavigation(); render(true); }); $("#nav").append(button); });
   $("#scenario").addEventListener("change", (event) => { state.scenario = event.target.value; state.asset = "demo-1"; render(); });
   $("#stage").addEventListener("input", (event) => { state.stage = Number(event.target.value); render(); });
   $("#timezone").addEventListener("change", (event) => { state.timezone = event.target.value; render(); });
   document.querySelectorAll("[data-unit]").forEach((button) => button.addEventListener("click", () => { state.unit = button.dataset.unit; document.querySelectorAll("[data-unit]").forEach((item) => item.classList.toggle("active", item === button)); render(); }));
-  $("#mobile-menu").addEventListener("click", () => $("#sidebar").classList.toggle("open"));
+  mobileMenu.addEventListener("click", () => setNavigationOpen(!sidebar.classList.contains("open")));
+  mobileBackdrop.addEventListener("click", closeNavigation);
+  document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeNavigation(); });
   const contactDialog = $("#contact-dialog");
   const contactForm = $("#contact-form");
   const contactStatus = $("#contact-status");
