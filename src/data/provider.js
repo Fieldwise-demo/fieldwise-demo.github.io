@@ -1,5 +1,9 @@
 import { normalizeSnapshot } from "../domain/snapshot.js";
 
+/**
+ * App-side providers implement loadSnapshot(request, { signal }) and return a
+ * versioned snapshot. This boundary does not specify any backend wire format.
+ */
 export function createSnapshotLoader(provider) {
   if (!provider || typeof provider.loadSnapshot !== "function") {
     throw new TypeError("A data provider with loadSnapshot(request, options) is required");

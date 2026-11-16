@@ -20,5 +20,6 @@ Then open http://localhost:8080/. The server only serves files; the demo does no
 - Visible notice: “Demonstration using simulated data.”
 - Contact form for future inquiries, submitted over HTTPS to the approved Formspree endpoint. Formspree processes submissions; no contact data is stored in the browser.
 - Versioned in-browser snapshot provider boundary; the current provider returns deterministic synthetic data only.
+- Schema version 1 is normalized in `src/domain/snapshot.js`; no backend API contract or authentication flow is defined.
 
 All readings, assets, incidents, and observations are illustrative. Freshness does not prove connectivity, thresholds are not compliance guidance, and the site cannot perform equipment actions.

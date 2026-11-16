@@ -4,7 +4,9 @@ import { filterIncidents, getFreshness, latestMeasurement } from "../src/domain/
 import { SNAPSHOT_VERSION, normalizeSnapshot } from "../src/domain/snapshot.js";
 import { formatDateTime } from "../src/format/date-time.js";
 import { convertTemperature } from "../src/format/temperature.js";
+import { createAppController } from "../src/app-controller.js";
 import { escapeHtml } from "../src/views/html.js";
+import { renderView } from "../src/views/render.js";
 
 let assertionCount = 0;
 function assert(condition, message) {
@@ -79,6 +81,71 @@ export async function runReplayRegression() {
   assert(partialData.assets[0].thresholds.temperatureC.min === null, "Missing thresholds remain missing");
   assert(getFreshness(latestMeasurement(partialData.measurements, partialData.assets[0].id), partialData.asOf, null).status === "unknown",
     "Freshness is unknown without an expected interval");
+  assert(renderView(partialData, {
+    view: "Asset Detail", asset: partialData.assets[0].id, unit: "°C", timezone: "UTC"
+  }).includes("Not provided"), "Missing thresholds are not fabricated in Asset Detail");
+  assert(renderView(partialData, {
+    view: "Device Health", unit: "°C", timezone: "UTC"
+  }).includes("FRESHNESS UNKNOWN"), "Missing intervals remain unclassified in Device Health");
+
+  const providerText = "<img src=x onerror=alert(1)>";
+  const hostileSnapshot = normalizeSnapshot({
+    ...sample,
+    assets: sample.assets.map((asset, index) => index ? asset : {
+      ...asset, name: providerText, site: providerText, equipment: providerText, id: "demo-1"
+    })
+  });
+  const hostileView = renderView(hostileSnapshot, {
+    view: "Asset Detail", asset: "demo-1", unit: "°C", timezone: "UTC"
+  });
+  assert(!hostileView.includes(providerText) && hostileView.includes("&lt;img"), "Provider text is HTML-escaped in views");
+  if (typeof document !== "undefined") {
+    const template = document.createElement("template");
+    template.innerHTML = hostileView;
+    assert(!template.content.querySelector("img"), "Provider text cannot create markup");
+
+    const emptySnapshot = normalizeSnapshot({
+      version: SNAPSHOT_VERSION,
+      source: "external",
+      scenario: "Workspace",
+      asOf: sample.asOf,
+      assets: [],
+      measurements: [],
+      incidents: []
+    });
+    assert(renderView(emptySnapshot, {
+      view: "Asset Detail", asset: "none", unit: "°C", timezone: "UTC"
+    }).includes("No assets are available"), "Empty provider result renders explicitly");
+
+    const documentRef = document.implementation.createHTMLDocument("provider failure test");
+    documentRef.body.innerHTML = `
+      <p id="view-status"></p><aside id="sidebar"><nav id="nav"></nav>
+      <select id="scenario"><option value="Refrigeration">Refrigeration</option></select>
+      <input id="stage" value="60"><output id="stage-name"></output>
+      <button data-unit="°C"></button><button data-unit="°F"></button>
+      <select id="timezone"><option value="UTC">UTC</option></select></aside>
+      <button id="mobile-menu"></button><div id="mobile-backdrop" hidden></div>
+      <main id="main-content"><div id="app"></div></main>
+      <button id="contact-open"></button><dialog id="contact-dialog">
+      <form id="contact-form"><div id="contact-status"></div><button id="contact-close"></button>
+      <button id="contact-cancel"></button><button id="contact-submit"></button></form></dialog>`;
+    let failedRequests = 0;
+    const errorController = createAppController({
+      provider: { async loadSnapshot() { failedRequests += 1; throw new Error("offline"); } },
+      documentRef,
+      windowRef: { matchMedia: () => ({ matches: false, addEventListener() {} }) }
+    });
+    errorController.start();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert(documentRef.querySelector("#app [role=alert]")?.textContent.includes("unavailable"),
+      "Provider error is visible in the controller");
+    assert(!documentRef.querySelector("#app").textContent.includes("Walk-in cooler"),
+      "Provider error does not fall back to demo data");
+    documentRef.querySelector("#retry-load").click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert(failedRequests === 2, "Retry calls the same provider");
+    errorController.dispose();
+  }
   assert(escapeHtml(`<script title="x">&'`) === "&lt;script title=&quot;x&quot;&gt;&amp;&#39;", "Provider text escaping");
   const summer = new Date("2026-07-15T13:00:00Z");
   assert(formatDateTime(summer, "America/New_York").endsWith("EDT"), "Timezone observes daylight-saving time");
