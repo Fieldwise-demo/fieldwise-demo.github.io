@@ -1,27 +1,113 @@
-// Dependency-free data regression checks; does not simulate DOM or browser layout.
-import { readFileSync } from "node:fs";
-const source = readFileSync(new URL("../app.js", import.meta.url), "utf8");
-new Function(source); // Parse the complete application without executing DOM code.
-const domain = source.slice(source.indexOf("  const STAGES"), source.indexOf("  const app ="))
-  + source.slice(source.indexOf("  function escape("), source.indexOf("  function metric("));
-const result = new Function(domain + `
-let cases = 0;
-for (const scenario of ["Refrigeration", "Building environment"]) {
-  state.scenario = scenario;
-  for (let stage = 24; stage <= 60; stage++) {
-    state.stage = stage;
-    const a = buildData(), b = buildData();
-    if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error("Nondeterministic replay");
-    if (a.assets.length !== 3) throw new Error("Asset count");
-    if (a.incidents.some(i => i.count < 1 || (i.status === "resolved" && !i.resolved))) throw new Error("Invalid lifecycle");
-    if (incidents(a, "Active").some(i => i.status !== "active")) throw new Error("Active filter");
-    if (incidents(a, "Resolved").some(i => i.status !== "resolved")) throw new Error("Resolved filter");
-    if (stage === 60 && (incidents(a, "Active").length !== 1 || incidents(a, "Resolved").length !== 1)) throw new Error("Final incidents");
-    cases++;
-  }
+import { createDemoProvider } from "../src/data/demo-provider.js";
+import { createSnapshotLoader } from "../src/data/provider.js";
+import { filterIncidents, getFreshness, latestMeasurement } from "../src/domain/incidents.js";
+import { SNAPSHOT_VERSION, normalizeSnapshot } from "../src/domain/snapshot.js";
+import { formatDateTime } from "../src/format/date-time.js";
+import { convertTemperature } from "../src/format/temperature.js";
+import { escapeHtml } from "../src/views/html.js";
+
+let assertionCount = 0;
+function assert(condition, message) {
+  assertionCount += 1;
+  if (!condition) throw new Error(message);
 }
-state.unit = "°F"; if (toTemp(0) !== 32) throw new Error("Fahrenheit conversion");
-state.unit = "°C"; if (toTemp(0) !== 0) throw new Error("Celsius conversion");
-return { replayScenarioCases: cases, unitChecks: 2, passed: true };
-`)();
-console.log(result);
+
+function assertThrows(callback, message) {
+  let threw = false;
+  try {
+    callback();
+  } catch {
+    threw = true;
+  }
+  assert(threw, message);
+}
+
+export async function runReplayRegression() {
+  assertionCount = 0;
+  const provider = createDemoProvider();
+  const loader = createSnapshotLoader(provider);
+  let replayCases = 0;
+  for (const scenario of ["Refrigeration", "Building environment"]) {
+    for (let stage = 24; stage <= 60; stage += 1) {
+      const request = { scenario, stage };
+      const [first, second] = await Promise.all([loader.load(request), loader.load(request)]);
+      assert(first.status === "stale", "Superseded replay must not publish");
+      assert(second.status === "success", "Current replay should load");
+      const snapshot = second.snapshot;
+      assert(snapshot.version === SNAPSHOT_VERSION, "Snapshot version");
+      assert(snapshot.source === "simulated", "Simulation source marker");
+      assert(snapshot.assets.length === 3, "Asset count");
+      assert(snapshot.asOf instanceof Date, "Snapshot clock normalization");
+      assert(snapshot.measurements.every((reading) => reading.receivedAt instanceof Date), "Receipt timestamp normalization");
+      assert(snapshot.measurements.every((reading) => reading.measurementTime === null), "Unavailable measurement times remain unknown");
+      assert(snapshot.measurements.every((reading) => reading.measurementQuality === null), "Unavailable quality remains unknown");
+      assert(snapshot.assets.every((asset) => asset.connectivity.status === "unverified"), "Unverified connectivity remains distinct");
+      assert(snapshot.incidents.every((incident) => incident.count >= 1 &&
+        (incident.status !== "resolved" || incident.resolvedAt instanceof Date)), "Incident lifecycle");
+      assert(filterIncidents(snapshot.incidents, "Active").every((incident) => incident.status === "active"), "Active incident filter");
+      assert(filterIncidents(snapshot.incidents, "Resolved").every((incident) => incident.status === "resolved"), "Resolved incident filter");
+      const repeated = await provider.loadSnapshot(request);
+      assert(JSON.stringify(snapshot) === JSON.stringify(normalizeSnapshot(repeated)), "Deterministic replay");
+      if (stage === 60) {
+        assert(filterIncidents(snapshot.incidents, "Active").length === 1, "Final active incident count");
+        assert(filterIncidents(snapshot.incidents, "Resolved").length === 1, "Final resolved incident count");
+      }
+      replayCases += 1;
+    }
+  }
+
+  const sample = await provider.loadSnapshot({ scenario: "Refrigeration", stage: 60 });
+  assert(convertTemperature(0, "°F") === 32, "Fahrenheit conversion");
+  assert(convertTemperature(0, "°C") === 0, "Celsius conversion");
+  assertThrows(() => convertTemperature(0, "K"), "Unsupported unit should fail");
+  assertThrows(() => normalizeSnapshot({ version: SNAPSHOT_VERSION + 1 }), "Unsupported snapshot version should fail");
+  assertThrows(() => normalizeSnapshot({ ...sample, asOf: null }), "Missing snapshot time should fail");
+  const malformedCount = {
+    ...sample,
+    incidents: sample.incidents.map((incident, index) => index ? incident : { ...incident, count: 1.5 })
+  };
+  assertThrows(() => normalizeSnapshot(malformedCount), "Fractional incident count should fail");
+  const partialData = normalizeSnapshot({
+    ...sample,
+    source: "external",
+    assets: sample.assets.map((asset) => ({
+      ...asset,
+      expectedIntervalSeconds: null,
+      thresholds: { temperatureC: null, humidityPercent: null }
+    }))
+  });
+  assert(partialData.assets[0].thresholds.temperatureC.min === null, "Missing thresholds remain missing");
+  assert(getFreshness(latestMeasurement(partialData.measurements, partialData.assets[0].id), partialData.asOf, null).status === "unknown",
+    "Freshness is unknown without an expected interval");
+  assert(escapeHtml(`<script title="x">&'`) === "&lt;script title=&quot;x&quot;&gt;&amp;&#39;", "Provider text escaping");
+  const summer = new Date("2026-07-15T13:00:00Z");
+  assert(formatDateTime(summer, "America/New_York").endsWith("EDT"), "Timezone observes daylight-saving time");
+  assert(formatDateTime(summer, "UTC").endsWith("UTC"), "UTC formatting");
+
+  const failingLoader = createSnapshotLoader({ async loadSnapshot() { throw new Error("offline"); } });
+  const failure = await failingLoader.load({});
+  assert(failure.status === "error" && failure.error.message === "offline", "Provider failure remains explicit");
+  const invalidLoader = createSnapshotLoader({ async loadSnapshot() { return { ...sample, version: 99 }; } });
+  assert((await invalidLoader.load({})).status === "error", "Invalid provider response remains explicit");
+
+  let releaseFirst;
+  const slowProvider = {
+    loadSnapshot(request) {
+      return request.id === 1
+        ? new Promise((resolve) => { releaseFirst = resolve; })
+        : Promise.resolve(sample);
+    }
+  };
+  const slowLoader = createSnapshotLoader(slowProvider);
+  const first = slowLoader.load({ id: 1 });
+  const current = slowLoader.load({ id: 2 });
+  assert((await current).status === "success", "Latest response should publish");
+  releaseFirst(sample);
+  assert((await first).status === "stale", "Late response must not replace latest data");
+
+  return { replayCases, unitChecks: 2, assertions: assertionCount, passed: true };
+}
+
+if (typeof process !== "undefined" && process.versions?.node) {
+  console.log(await runReplayRegression());
+}
