@@ -1,7 +1,8 @@
 import { filterIncidents, getFreshness, latestMeasurement } from "../domain/incidents.js";
+import { convertTemperatureDifference } from "../format/temperature.js";
 import { escapeHtml, freshnessLabel } from "./shared.js";
 
-export function renderInsights(snapshot) {
+export function renderInsights(snapshot, preferences) {
   const items = [];
   snapshot.assets.forEach((asset) => {
     const rows = snapshot.measurements.filter((row) => row.assetId === asset.id);
@@ -23,7 +24,8 @@ export function renderInsights(snapshot) {
       items.push([
         2,
         asset.name + ": temperature changed " +
-          (rows.at(-1).temperatureC - rows[0].temperatureC).toFixed(2) + " °C across " +
+          convertTemperatureDifference(rows.at(-1).temperatureC - rows[0].temperatureC, preferences.unit).toFixed(2) +
+          " " + preferences.unit + " across " +
           Math.floor((rows.at(-1).receivedAt - rows[0].receivedAt) / 60000) +
           " minutes of received reports."
       ]);

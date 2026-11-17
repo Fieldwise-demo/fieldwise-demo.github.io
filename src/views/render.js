@@ -16,7 +16,7 @@ export function renderView(snapshot, state) {
     case "Device Health":
       return renderDeviceHealth(snapshot, preferences);
     case "Insights":
-      return renderInsights(snapshot);
+      return renderInsights(snapshot, preferences);
     default:
       throw new TypeError(`Unsupported view: ${state.view}`);
   }

@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fieldwise browser regression tests</title>
+  <style>
+    body { color: #172d40; font: 16px system-ui, sans-serif; margin: 1.5rem; }
+    iframe { border: 1px solid #9aabba; display: block; margin-top: 1rem; }
+    #app-frame { height: 900px; }
+    #contact-test-fixture { left: -10000px; position: fixed; top: 0; }
+    .passed { color: #17645e; }
+    .failed { color: #a11; }
+    .skipped { color: #775000; }
+  </style>
+</head>
+<body>
+  <h1>Fieldwise browser regression tests</h1>
+  <p id="test-summary" role="status" aria-live="polite">Running…</p>
+  <ol id="test-results"></ol>
+  <iframe id="app-frame" title="Fieldwise application under test"></iframe>
+  <script type="module" src="./browser-regression.js"></script>
+</body>
+</html>

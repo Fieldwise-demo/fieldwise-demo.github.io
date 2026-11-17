@@ -1,4 +1,10 @@
 export const SNAPSHOT_VERSION = 1;
+export const SNAPSHOT_LIMITS = Object.freeze({
+  assets: 100,
+  measurements: 10000,
+  measurementsPerAsset: 500,
+  incidents: 500
+});
 
 const CONNECTIVITY = new Set(["connected", "disconnected", "unverified"]);
 const TIMESTAMP_QUALITY = new Set(["synchronized", "unknown"]);
@@ -40,6 +46,29 @@ function date(value, path, nullable = false) {
     if (nullable) return null;
     throw new TypeError(`${path} must be a valid date`);
   }
+  if (!(value instanceof Date) && typeof value !== "string") {
+    throw new TypeError(`${path} must be a Date or ISO 8601 timestamp string`);
+  }
+  if (typeof value === "string") {
+    if (value.length > 64) throw new TypeError(`${path} timestamp string is too long`);
+    const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2})$/.exec(value);
+    if (!match) throw new TypeError(`${path} must be a Date or ISO 8601 timestamp string`);
+    const [, yearText, monthText, dayText, hourText, minuteText, secondText, zone] = match;
+    const year = Number(yearText), month = Number(monthText), day = Number(dayText);
+    const hour = Number(hourText), minute = Number(minuteText), second = Number(secondText);
+    const daysInMonth = [31, (year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0)) ? 29 : 28,
+      31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1];
+    if (!daysInMonth || day < 1 || day > daysInMonth || hour > 23 || minute > 59 || second > 59) {
+      throw new TypeError(`${path} must be a valid ISO 8601 timestamp`);
+    }
+    if (zone !== "Z") {
+      const offset = /^([+-])(\d{2}):(\d{2})$/.exec(zone);
+      const offsetHours = Number(offset[2]), offsetMinutes = Number(offset[3]);
+      if (offsetHours > 14 || offsetMinutes > 59 || (offsetHours === 14 && offsetMinutes !== 0)) {
+        throw new TypeError(`${path} must use a valid ISO 8601 timezone offset`);
+      }
+    }
+  }
   const parsed = value instanceof Date ? new Date(value.getTime()) : new Date(value);
   if (!Number.isFinite(parsed.getTime())) throw new TypeError(`${path} must be a valid date`);
   return parsed;
@@ -72,6 +101,11 @@ export function normalizeSnapshot(value) {
   if (!Array.isArray(input.assets) || !Array.isArray(input.measurements) || !Array.isArray(input.incidents)) {
     throw new TypeError("snapshot assets, measurements, and incidents must be arrays");
   }
+  if (input.assets.length > SNAPSHOT_LIMITS.assets ||
+      input.measurements.length > SNAPSHOT_LIMITS.measurements ||
+      input.incidents.length > SNAPSHOT_LIMITS.incidents) {
+    throw new RangeError("snapshot exceeds the supported asset, measurement, or incident limit");
+  }
 
   const asOf = date(input.asOf, "snapshot.asOf");
   const assets = input.assets.map((item, index) => {
@@ -100,13 +134,20 @@ export function normalizeSnapshot(value) {
   const assetIds = new Set(assets.map((asset) => asset.id));
   if (assetIds.size !== assets.length) throw new TypeError("snapshot asset ids must be unique");
 
+  const measurementCounts = new Map();
   const measurements = input.measurements.map((item, index) => {
     const path = `snapshot.measurements[${index}]`;
     const reading = object(item, path);
     const receivedAt = date(reading.receivedAt, `${path}.receivedAt`);
     if (receivedAt > asOf) throw new TypeError(`${path}.receivedAt cannot be after snapshot.asOf`);
     if (!assetIds.has(reading.assetId)) throw new TypeError(`${path}.assetId is not in snapshot.assets`);
+    const count = (measurementCounts.get(reading.assetId) || 0) + 1;
+    if (count > SNAPSHOT_LIMITS.measurementsPerAsset) {
+      throw new RangeError(`${path} exceeds the per-asset measurement limit`);
+    }
+    measurementCounts.set(reading.assetId, count);
     return {
+      sourceOrder: index,
       assetId: text(reading.assetId, `${path}.assetId`),
       measurementTime: date(reading.measurementTime, `${path}.measurementTime`, true),
       receivedAt,
@@ -117,7 +158,9 @@ export function normalizeSnapshot(value) {
         ? null
         : text(reading.measurementQuality, `${path}.measurementQuality`)
     };
-  });
+  }).sort((left, right) =>
+    left.receivedAt.getTime() - right.receivedAt.getTime() || left.sourceOrder - right.sourceOrder
+  ).map(({ sourceOrder, ...reading }) => reading);
 
   const incidents = input.incidents.map((item, index) => {
     const path = `snapshot.incidents[${index}]`;
@@ -130,7 +173,8 @@ export function normalizeSnapshot(value) {
     if ((status === "resolved") !== (resolvedAt !== null)) {
       throw new TypeError(`${path}.resolvedAt must match its status`);
     }
-    if (lastReceivedAt < firstReceivedAt || (resolvedAt && resolvedAt < lastReceivedAt)) {
+    if (firstReceivedAt > asOf || lastReceivedAt > asOf || (resolvedAt && resolvedAt > asOf) ||
+        lastReceivedAt < firstReceivedAt || (resolvedAt && resolvedAt < lastReceivedAt)) {
       throw new TypeError(`${path} incident times are inconsistent`);
     }
     return {

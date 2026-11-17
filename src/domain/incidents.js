@@ -2,6 +2,12 @@ export function deriveIncidents(assets, measurements) {
   const incidents = [];
   const open = new Map();
   const assetById = new Map(assets.map((asset) => [asset.id, asset]));
+  const resolve = (key, receivedAt) => {
+    const item = incidents[open.get(key)];
+    item.status = "resolved";
+    item.resolvedAt = receivedAt;
+    open.delete(key);
+  };
 
   measurements.forEach((reading) => {
     const asset = assetById.get(reading.assetId);
@@ -10,40 +16,40 @@ export function deriveIncidents(assets, measurements) {
       ["humidity", reading.humidityPercent, asset.thresholds.humidityPercent]
     ];
     observations.forEach(([field, value, bounds]) => {
-      const violation = value < bounds.min
+      const violation = bounds?.min != null && value < bounds.min
         ? ["below minimum", bounds.min]
-        : value > bounds.max
+        : bounds?.max != null && value > bounds.max
           ? ["above maximum", bounds.max]
           : null;
       const key = `${reading.assetId}|${field}`;
       if (violation) {
         if (open.has(key)) {
           const item = incidents[open.get(key)];
-          item.value = value;
-          item.lastReceivedAt = reading.receivedAt;
-          item.count += 1;
-        } else {
-          open.set(key, incidents.length);
-          incidents.push({
-            id: `DEMO-${String(incidents.length + 1).padStart(3, "0")}`,
-            assetId: reading.assetId,
-            field,
-            value,
-            threshold: violation[1],
-            condition: violation[0],
-            severity: "warning",
-            status: "active",
-            firstReceivedAt: reading.receivedAt,
-            lastReceivedAt: reading.receivedAt,
-            resolvedAt: null,
-            count: 1
-          });
+          if (item.condition === violation[0]) {
+            item.value = value;
+            item.lastReceivedAt = reading.receivedAt;
+            item.count += 1;
+            return;
+          }
+          resolve(key, reading.receivedAt);
         }
+        open.set(key, incidents.length);
+        incidents.push({
+          id: `DEMO-${String(incidents.length + 1).padStart(3, "0")}`,
+          assetId: reading.assetId,
+          field,
+          value,
+          threshold: violation[1],
+          condition: violation[0],
+          severity: "warning",
+          status: "active",
+          firstReceivedAt: reading.receivedAt,
+          lastReceivedAt: reading.receivedAt,
+          resolvedAt: null,
+          count: 1
+        });
       } else if (open.has(key)) {
-        const item = incidents[open.get(key)];
-        item.status = "resolved";
-        item.resolvedAt = reading.receivedAt;
-        open.delete(key);
+        resolve(key, reading.receivedAt);
       }
     });
   });
